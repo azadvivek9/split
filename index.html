@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trip Split Pro - Cloud Edition</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // Your Firebase Configuration
+        const firebaseConfig = {
+            databaseURL: "https://saitrip-ecb34-default-rtdb.firebaseio.com/"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // Making Firebase functions globally accessible for your existing logic
+        window.saveToCloud = function(data) {
+            set(ref(db, 'tripMasterData'), data);
+        };
+
+        // Load data from cloud on start
+        onValue(ref(db, 'tripMasterData'), (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                allTrips = data;
+                updateTripDropdown();
+                refresh();
+            }
+        });
+    </script>
+
+    <style>
+        :root {
+            --bg-color: #050a14;
+            --card-bg: #111827;
+            --text-color: #e2e8f0;
+            --input-bg: #1f2937;
+            --border-color: #374151;
+            --neon-blue: #00d2ff;
+        }
+        .light-theme {
+            --bg-color: #f0f4f8;
+            --card-bg: #ffffff;
+            --text-color: #1f2937;
+            --input-bg: #ffffff;
+            --border-color: #cbd5e1;
+            --neon-blue: #0ea5e9;
+        }
+        body { background-color: var(--bg-color); color: var(--text-color); transition: 0.3s; font-family: sans-serif; }
+        .card-style { background-color: var(--card-bg); border: 1px solid var(--border-color); }
+        input, select { background-color: var(--input-bg) !important; border: 1px solid var(--border-color) !important; color: var(--text-color) !important; outline: none; }
+        .neon-text { color: var(--neon-blue); text-shadow: 0 0 8px rgba(0, 210, 255, 0.2); }
+        .neon-btn { background-color: var(--neon-blue); color: white; cursor: pointer; }
+        
+        #tripModal { display: none; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); }
+        .modal-content { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .user-chip {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(0, 210, 255, 0.1);
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            padding: 4px 10px;
+            border-radius: 100px;
+            font-size: 12px;
+            gap: 6px;
+            margin: 4px;
+        }
+    </style>
+</head>
+
+<body class="p-4 md:p-6">
+
+<div id="tripModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="modal-content card-style w-full max-w-md p-6 rounded-3xl shadow-2xl relative border-2 border-sky-500/30">
+        <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-500 hover:text-white">✕</button>
+        <h2 class="text-xl font-bold neon-text mb-6 italic tracking-tight uppercase">New Trip Setup</h2>
+        <div class="mb-5">
+            <label class="text-[10px] uppercase font-bold opacity-50 block mb-2">Trip Name</label>
+            <input id="modalTripName" type="text" placeholder="e.g. Goa 2026" class="w-full p-3 rounded-xl text-sm border border-gray-700">
+        </div>
+        <div class="mb-5">
+            <label class="text-[10px] uppercase font-bold opacity-50 block mb-2">Add Buddies</label>
+            <div class="flex gap-2 mb-3">
+                <input id="modalUserName" type="text" placeholder="Enter name..." class="w-full p-3 rounded-xl text-sm border border-gray-700" onkeypress="if(event.key==='Enter') addMemberToModal()">
+                <button onclick="addMemberToModal()" class="bg-sky-500 text-white px-5 rounded-xl font-bold">+</button>
+            </div>
+            <div id="modalUserList" class="flex flex-wrap max-h-40 overflow-y-auto p-1"></div>
+        </div>
+        <button onclick="finalizeNewTrip()" class="w-full neon-btn py-4 rounded-2xl font-bold uppercase tracking-widest text-xs shadow-lg shadow-sky-500/20">Create My Trip</button>
+    </div>
+</div>
+
+<div class="max-w-[1440px] mx-auto space-y-6">
+    <div class="flex flex-col md:flex-row justify-between items-center gap-4 border-b border-gray-700 pb-4">
+        <div>
+            <h1 class="text-3xl font-black neon-text italic tracking-tighter uppercase">✈️ Trip Split Pro</h1>
+            <p class="text-[10px] opacity-60 font-mono" id="displayTripName"></p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 bg-gray-800/40 p-3 rounded-2xl border border-gray-700">
+            <select id="tripSelector" onchange="switchTrip()" class="p-1 rounded bg-transparent text-sm font-bold cursor-pointer outline-none"></select>
+            <button onclick="openModal()" class="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-green-500 transition">+ New Trip</button>
+            <button onclick="deleteCurrentTrip()" class="bg-red-600/10 text-red-500 border border-red-500/30 px-3 py-2 rounded-xl text-xs font-bold hover:bg-red-600 transition">Delete Trip</button>
+            <button onclick="document.body.classList.toggle('light-theme')" class="p-2 bg-gray-700 rounded-full text-xs">🌓</button>
+        </div>
+    </div>
+
+    <div class="grid lg:grid-cols-4 gap-6">
+        <div class="lg:col-span-1 space-y-6">
+            <div class="card-style p-5 rounded-3xl shadow-2xl">
+                <h3 class="font-bold text-xs uppercase tracking-widest opacity-70 mb-4">👥 Buddies</h3>
+                <div class="flex gap-2 mb-6">
+                    <input id="userName" placeholder="Add friend..." class="p-2 rounded-xl w-full text-xs outline-none">
+                    <button onclick="addOrUpdateUser()" class="neon-btn px-4 rounded-xl font-bold">+</button>
+                </div>
+                <div id="userList" class="space-y-3"></div>
+            </div>
+            <div class="card-style p-5 rounded-3xl bg-gradient-to-br from-gray-800/50 to-transparent">
+                <h3 class="font-bold text-xs uppercase opacity-70 mb-2">💰 Trip Total</h3>
+                <div class="text-3xl font-black text-sky-400" id="totalExpense">₹0</div>
+                <div id="settlement" class="mt-4 space-y-2 text-[11px] border-t border-gray-700 pt-4"></div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-3 space-y-6">
+            <div class="card-style p-6 rounded-3xl shadow-xl">
+                <h3 class="font-bold mb-4 neon-text italic uppercase text-xs tracking-widest">New Transaction</h3>
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+                    <input id="desc" placeholder="Details" class="md:col-span-2 p-3 rounded-xl text-sm">
+                    <input id="date" type="date" class="p-3 rounded-xl text-sm">
+                    <input id="amount" type="number" placeholder="Amount" class="p-3 rounded-xl text-sm">
+                    <select id="payer" class="p-3 rounded-xl text-sm"></select>
+                </div>
+                <div class="mt-4 p-4 border border-gray-700 rounded-2xl bg-gray-900/30">
+                    <label class="text-[10px] font-bold opacity-50 uppercase block mb-3">Split Between:</label>
+                    <div id="splitBox" class="flex flex-wrap gap-3"></div>
+                </div>
+                <div class="flex gap-3 mt-4">
+                    <input type="hidden" id="editExpIndex" value="-1">
+                    <button onclick="addExpense()" id="saveBtn" class="flex-1 neon-btn font-bold p-4 rounded-2xl uppercase tracking-widest text-sm">Save Transaction</button>
+                    <button id="cancelEdit" onclick="resetForm()" class="hidden bg-gray-600 px-8 rounded-2xl text-xs uppercase font-bold">Cancel</button>
+                </div>
+            </div>
+
+            <div class="card-style rounded-3xl shadow-xl overflow-hidden">
+                <div class="p-5 border-b border-gray-800 flex flex-wrap justify-between items-center bg-gray-800/30 gap-3">
+                    <h3 class="font-bold text-xs uppercase tracking-widest">📋 Logs</h3>
+                    <div class="flex gap-2">
+                        <button onclick="clearAllTransactions()" class="text-[10px] border border-red-500/50 text-red-500 px-3 py-1.5 rounded-full hover:bg-red-500 transition font-bold uppercase">Clear</button>
+                        <button onclick="downloadPDF()" class="text-[10px] text-sky-400 border border-sky-400 px-4 py-1.5 rounded-full hover:bg-sky-400 transition font-bold uppercase">PDF</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs min-w-[900px]">
+                        <thead class="bg-gray-800 text-gray-400 uppercase">
+                            <tr>
+                                <th class="p-5">Date</th>
+                                <th>Item</th>
+                                <th>Payer</th>
+                                <th>Split</th>
+                                <th>Total</th>
+                                <th>Per Head</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-gray-800"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Initialize data from LocalStorage first, then Cloud takes over
+    let allTrips = JSON.parse(localStorage.getItem('tripMasterData')) || { "My Trip": { users: ["Admin"], expenses: [] } };
+    let currentTripKey = localStorage.getItem('currentTripKey') || "My Trip";
+    let tempModalUsers = [];
+
+    window.onload = () => {
+        document.getElementById("date").value = new Date().toISOString().split("T")[0];
+        updateTripDropdown();
+        refresh();
+    };
+
+    function openModal() {
+        tempModalUsers = [];
+        document.getElementById("modalTripName").value = "";
+        document.getElementById("modalUserList").innerHTML = "";
+        document.getElementById("tripModal").style.display = "flex";
+    }
+
+    function closeModal() { document.getElementById("tripModal").style.display = "none"; }
+
+    function addMemberToModal() {
+        let name = document.getElementById("modalUserName").value.trim();
+        if (name && !tempModalUsers.includes(name)) {
+            tempModalUsers.push(name);
+            renderModalUsers();
+            document.getElementById("modalUserName").value = "";
+            document.getElementById("modalUserName").focus();
+        }
+    }
+
+    function removeMemberFromModal(idx) {
+        tempModalUsers.splice(idx, 1);
+        renderModalUsers();
+    }
+
+    function renderModalUsers() {
+        document.getElementById("modalUserList").innerHTML = tempModalUsers.map((u, i) => `
+            <div class="user-chip">
+                <span>${u}</span>
+                <button onclick="removeMemberFromModal(${i})" class="text-red-400 hover:text-white font-bold ml-1">✕</button>
+            </div>
+        `).join("");
+    }
+
+    function finalizeNewTrip() {
+        let tripName = document.getElementById("modalTripName").value.trim();
+        if (!tripName) return alert("Enter Trip Name!");
+        if (tempModalUsers.length === 0) return alert("Add at least one member!");
+
+        allTrips[tripName] = { users: tempModalUsers, expenses: [] };
+        currentTripKey = tripName;
+        closeModal();
+        saveAndRefresh();
+    }
+
+    function updateTripDropdown() {
+        const selector = document.getElementById("tripSelector");
+        if(!allTrips[currentTripKey]) currentTripKey = Object.keys(allTrips)[0];
+        selector.innerHTML = Object.keys(allTrips).map(name => `<option value="${name}" ${name===currentTripKey?'selected':''}>${name}</option>`).join("");
+        document.getElementById("displayTripName").innerText = "Trip: " + currentTripKey;
+    }
+
+    function saveAndRefresh() {
+        localStorage.setItem('tripMasterData', JSON.stringify(allTrips));
+        localStorage.setItem('currentTripKey', currentTripKey);
+        
+        // Sync to Firebase Cloud
+        if (window.saveToCloud) {
+            window.saveToCloud(allTrips);
+        }
+        
+        updateTripDropdown();
+        refresh();
+    }
+
+    function switchTrip() {
+        currentTripKey = document.getElementById("tripSelector").value;
+        saveAndRefresh();
+    }
+
+    function deleteCurrentTrip() {
+        if (Object.keys(allTrips).length <= 1) return;
+        if (confirm("Delete this trip?")) {
+            delete allTrips[currentTripKey];
+            currentTripKey = Object.keys(allTrips)[0];
+            saveAndRefresh();
+        }
+    }
+
+    function clearAllTransactions() {
+        if (confirm("Clear all logs?")) {
+            allTrips[currentTripKey].expenses = [];
+            saveAndRefresh();
+        }
+    }
+
+    function addOrUpdateUser() {
+        let name = document.getElementById("userName").value.trim();
+        if (!name || allTrips[currentTripKey].users.includes(name)) return;
+        allTrips[currentTripKey].users.push(name);
+        document.getElementById("userName").value = "";
+        saveAndRefresh();
+    }
+
+    function deleteUser(i) {
+        let name = allTrips[currentTripKey].users[i];
+        if (confirm("Remove user?")) {
+            allTrips[currentTripKey].users.splice(i, 1);
+            allTrips[currentTripKey].expenses = (allTrips[currentTripKey].expenses || []).filter(e => e.payer !== name);
+            saveAndRefresh();
+        }
+    }
+
+    function addExpense() {
+        const trip = allTrips[currentTripKey];
+        let amt = parseFloat(document.getElementById("amount").value);
+        let selected = [...document.querySelectorAll("#splitBox input:checked")].map(cb => cb.value);
+        if (isNaN(amt) || selected.length === 0) return;
+
+        let expObj = {
+            desc: document.getElementById("desc").value || "Expense",
+            amount: amt, payer: document.getElementById("payer").value,
+            split: selected, perHead: amt/selected.length, date: document.getElementById("date").value
+        };
+
+        let editIdx = parseInt(document.getElementById("editExpIndex").value);
+        if (!trip.expenses) trip.expenses = [];
+        if (editIdx === -1) trip.expenses.push(expObj);
+        else trip.expenses[editIdx] = expObj;
+
+        resetForm();
+        saveAndRefresh();
+    }
+
+    function editExp(i) {
+        const exp = allTrips[currentTripKey].expenses[i];
+        document.getElementById("desc").value = exp.desc;
+        document.getElementById("amount").value = exp.amount;
+        document.getElementById("date").value = exp.date;
+        document.getElementById("payer").value = exp.payer;
+        document.getElementById("editExpIndex").value = i;
+        document.querySelectorAll("#splitBox input").forEach(cb => cb.checked = exp.split.includes(cb.value));
+        document.getElementById("saveBtn").innerText = "Update";
+        document.getElementById("cancelEdit").classList.remove("hidden");
+    }
+
+    function deleteExp(i) {
+        if(confirm("Delete?")) {
+            allTrips[currentTripKey].expenses.splice(i, 1);
+            saveAndRefresh();
+        }
+    }
+
+    function resetForm() {
+        document.getElementById("desc").value = "";
+        document.getElementById("amount").value = "";
+        document.getElementById("editExpIndex").value = "-1";
+        document.getElementById("saveBtn").innerText = "Save Transaction";
+        document.getElementById("cancelEdit").classList.add("hidden");
+    }
+
+    function refresh() {
+        const trip = allTrips[currentTripKey];
+        if(!trip) return;
+        document.getElementById("payer").innerHTML = trip.users.map(u => `<option value="${u}">${u}</option>`).join("");
+        document.getElementById("splitBox").innerHTML = trip.users.map(u => `
+            <label class="flex items-center gap-2 text-[10px] bg-gray-800/50 px-3 py-1.5 rounded-xl border border-gray-700 cursor-pointer">
+                <input type="checkbox" value="${u}" checked> ${u}
+            </label>
+        `).join("");
+
+        const expenses = trip.expenses || [];
+        document.getElementById("tableBody").innerHTML = expenses.map((e, i) => `
+            <tr class="hover:bg-white/5 border-b border-gray-800/30">
+                <td class="p-5 opacity-40">${e.date}</td>
+                <td class="font-bold text-gray-200">${e.desc}</td>
+                <td class="text-sky-400 font-black uppercase">${e.payer}</td>
+                <td class="text-[10px] opacity-60 italic max-w-[200px] truncate">${e.split.join(", ")}</td>
+                <td class="font-black text-white">₹${e.amount}</td>
+                <td class="text-gray-400 font-mono">₹${e.perHead.toFixed(2)}</td>
+                <td class="text-center">
+                    <div class="flex justify-center gap-3">
+                        <button onclick="editExp(${i})" class="text-blue-400">✏️</button>
+                        <button onclick="deleteExp(${i})" class="text-red-500">🗑️</button>
+                    </div>
+                </td>
+            </tr>
+        `).reverse().join("");
+
+        calculate(trip);
+    }
+
+    function calculate(trip) {
+        let bal = {};
+        trip.users.forEach(u => bal[u] = 0);
+        let total = 0;
+        (trip.expenses || []).forEach(e => {
+            total += e.amount;
+            bal[e.payer] += e.amount;
+            e.split.forEach(u => { if(bal[u] !== undefined) bal[u] -= e.perHead; });
+        });
+        document.getElementById("totalExpense").innerText = "₹" + total.toLocaleString();
+
+        document.getElementById("userList").innerHTML = trip.users.map((u, i) => {
+            let b = bal[u] || 0;
+            let isPlus = b >= 0;
+            return `
+                <div class="bg-gray-800/30 p-3 rounded-2xl border border-gray-700/50">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-xs font-bold uppercase">${u}</span>
+                        <button onclick="deleteUser(${i})" class="text-[10px] text-red-500 opacity-30 hover:opacity-100 transition font-bold">✕</button>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[10px] font-bold ${isPlus?'text-green-500':'text-red-500'}">${isPlus ? 'PLUS' : 'MINUS'}</span>
+                        <span class="text-sm font-black ${isPlus?'text-green-400':'text-red-400'}">${isPlus?'+':''}₹${b.toFixed(2)}</span>
+                    </div>
+                </div>`;
+        }).join("");
+
+        let d=[], c=[];
+        for(let u in bal){
+            if(bal[u] < -0.01) d.push({n:u, a:-bal[u]});
+            else if(bal[u] > 0.01) c.push({n:u, a:bal[u]});
+        }
+        let res = [];
+        let dIdx=0, cIdx=0;
+        while(dIdx < d.length && cIdx < c.length){
+            let amt = Math.min(d[dIdx].a, c[cIdx].a);
+            res.push(`<div class="flex justify-between border-l-2 border-sky-500 pl-2"><span>${d[dIdx].n} ➔ ${c[cIdx].n}</span><span class="font-bold text-sky-400">₹${amt.toFixed(2)}</span></div>`);
+            d[dIdx].a -= amt; c[cIdx].a -= amt;
+            if(d[dIdx].a < 0.01) dIdx++; if(c[cIdx].a < 0.01) cIdx++;
+        }
+        document.getElementById("settlement").innerHTML = res.length ? res.join("") : "<p class='opacity-50 text-center py-2 text-xs'>SAB CLEAR! ✅</p>";
+    }
+
+    function downloadPDF() {
+        const { jsPDF } = window.jspdf;
+        let doc = new jsPDF('l', 'mm', 'a4');
+        doc.text(`TRIP REPORT: ${currentTripKey.toUpperCase()}`, 14, 15);
+        let rows = (allTrips[currentTripKey].expenses || []).map(e => [e.date, e.desc, e.payer, e.split.join(", "), "Rs. "+e.amount, "Rs. "+e.perHead.toFixed(2)]);
+        doc.autoTable({ head:[["Date","Item","Payer","Split","Total","Per Head"]], body:rows, startY: 25, theme: 'grid' });
+        doc.save(`${currentTripKey}_Log.pdf`);
+    }
+</script>
+
+</body>
+</html>
